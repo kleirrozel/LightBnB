@@ -4,7 +4,7 @@ const users = require('./json/users.json');
 const { Pool } = require('pg');
 
 const pool = new Pool({
-  user: 'vagrant',
+  user: 'kleirmiranda',
   password: '123',
   host: 'localhost',
   database: 'lightbnb'
@@ -35,7 +35,7 @@ exports.getUserWithEmail = getUserWithEmail;
 const getUserWithId = function(id) {
   return pool.query(`SELECT * FROM users WHERE id=$1`, [id])
   .then((result) => {
-    return(result.rows);
+    return(result.rows[0]);
   })
   .catch((err) => {
     console.log(err.message);
@@ -102,8 +102,55 @@ exports.getAllReservations = getAllReservations;
  * @return {Promise<[{}]>}  A promise to the properties.
  */
  const getAllProperties = (options, limit = 10) => {
-  return pool
-    .query(`SELECT * FROM properties LIMIT $1`, [limit])
+  // 1 -- Array that holds parameter available for the query
+  const queryParams = [];
+
+  // 2 -- Start the query with ALL info that comes before the WHERE clause (Property Listing SQL query)
+  let queryString = `
+  SELECT properties.*, avg(property_reviews.rating) as average_rating
+  FROM properties
+  JOIN property_reviews ON properties.id = property_id
+  WHERE 1 = 1 `;
+
+  // 3 -- Check if queries have been passed as an option
+  if (options.city) {
+    queryParams.push(`%${options.city}%`);
+    queryString += `AND city LIKE $${queryParams.length} `;
+  }
+  if (options.owner_id) {
+    queryParams.push(`${options.owner_id}`);
+    queryString += `AND owner_id = $${queryParams.length} `;
+  }
+  if (options.minimum_price_per_night) {
+    queryParams.push(`${options.minimum_price_per_night}`);
+    queryString += `AND cost_per_night >= $${queryParams.length} * 100 `;
+  }
+  if (options.maximum_price_per_night) {
+    queryParams.push(`${options.maximum_price_per_night}`);
+    queryString += `AND cost_per_night <= $${queryParams.length} * 100 `;
+  }
+
+  queryString += `
+  GROUP BY properties.id
+  `;
+
+  if (options.minimum_rating) {
+    queryParams.push(`${options.minimum_rating}`);
+    queryString += `HAVING AVG(property_reviews.rating) >= $${queryParams.length} `;
+  }
+
+  // 4 -- Queries after WHERE clause goes here
+  queryParams.push(limit);
+  queryString += `
+  ORDER BY cost_per_night
+  LIMIT $${queryParams.length};
+  `
+
+  // 5 -- Console log to check
+  console.log("getAllProperties queryString: ", queryString, "getAllProperties queryParams: ", queryParams)
+  
+  // 6 -- Runs the query
+  return pool.query(queryString, queryParams)
     .then((result) => {
       return(result.rows);
     })
